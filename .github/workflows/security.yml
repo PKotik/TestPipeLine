@@ -1,0 +1,36 @@
+name: Security pipeline
+
+on:
+  push:
+    branches: [ "main" ]
+  pull_request:
+
+jobs:
+  security:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Generate SBOM (CycloneDX)
+        uses: cyclonedx/cdxgen-action@v1
+        with:
+          type: python
+          output: sbom.json
+
+      - name: Trivy SBOM scan
+        uses: aquasecurity/trivy-action@0.20.0
+        with:
+          scan-type: sbom
+          sbom: sbom.json
+          format: json
+          output: trivy.json
+          severity: HIGH,CRITICAL
+          exit-code: 1
+
+      - name: Upload Trivy report
+        uses: actions/upload-artifact@v4
+        with:
+          name: trivy-report
+          path: trivy.json
