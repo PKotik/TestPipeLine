@@ -1,4 +1,4 @@
-name: Security pipeline
+name: Simple Security Scan
 
 on:
   push:
@@ -13,52 +13,28 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Setup Python
-        uses: actions/setup-python@v4
+      - name: Run Trivy vulnerability scanner
+        uses: aquasecurity/trivy-action@master
         with:
-          python-version: '3.10'
+          scan-type: 'fs'
+          scan-ref: '.'
+          format: 'json'
+          output: 'trivy-results.json'
+          severity: 'HIGH,CRITICAL'
+          exit-code: 1
+          ignore-unfixed: false
 
-      - name: Install dependencies (optional)
-        run: pip install -r requirements.txt || true
+      - name: Generate SBOM with Syft
+        uses: anchore/sbom-action@v0
+        with:
+          path: '.'
+          format: 'spdx-json'
+          output-file: 'sbom.spdx.json'
 
-      - name: Generate SBOM with CycloneDX
-        run: |
-          # Установка cdxgen
-          npm install -g @cyclonedx/cdxgen@9.6.3
-          # Генерация SBOM
-          cdxgen -o sbom.json --spec-version 1.5
-        continue-on-error: true
-
-      - name: Install Trivy
-        run: |
-          # Установка последней версии Trivy
-          curl -sfL https://raw.githubusercontent.com/aquasecurity/trivy/main/contrib/install.sh | sh -s -- -b /usr/local/bin
-          trivy --version
-
-      - name: Scan with Trivy (SBOM scan)
-        if: success() || failure()
-        run: |
-          if [ -f "sbom.json" ]; then
-            echo "Scanning SBOM file..."
-            trivy sbom --format json --output trivy-sbom.json sbom.json
-          else
-            echo "SBOM file not found, scanning filesystem directly..."
-            trivy fs --format json --output trivy-fs.json --severity HIGH,CRITICAL .
-          fi
-        continue-on-error: true
-
-      - name: Scan filesystem directly (fallback)
-        if: always()
-        run: |
-          echo "Running direct filesystem scan..."
-          trivy fs --format json --output trivy-direct.json --severity HIGH,CRITICAL --exit-code 1 .
-        continue-on-error: true
-
-      - name: Upload all security reports
+      - name: Upload security reports
         uses: actions/upload-artifact@v4
         with:
           name: security-reports
           path: |
-            trivy-*.json
-            sbom.json
-          retention-days: 7
+            trivy-results.json
+            sbom.spdx.json
