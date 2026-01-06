@@ -13,7 +13,26 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Run Trivy vulnerability scanner
+      - name: Setup Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.10'
+
+      - name: Install dependencies
+        run: |
+          echo "=== Installing packages from requirements.txt ==="
+          pip install -r requirements.txt
+          echo "=== Installed packages ==="
+          pip list | grep -E "(flask|requests|urllib|jinja|werkzeug)" || true
+
+      - name: Run Trivy (table output)
+        continue-on-error: true  # Чтобы увидеть результаты даже при ошибке
+        run: |
+          echo "=== Trivy scan results (table) ==="
+          trivy fs --format table --severity HIGH,CRITICAL --exit-code 0 .
+
+      - name: Run Trivy (JSON output)
+        id: trivy-scan
         uses: aquasecurity/trivy-action@master
         with:
           scan-type: 'fs'
@@ -21,10 +40,11 @@ jobs:
           format: 'json'
           output: 'trivy-results.json'
           severity: 'HIGH,CRITICAL'
-          exit-code: 1
+          exit-code: 1  # если есть уязвимости
           ignore-unfixed: false
 
       - name: Generate SBOM with Syft
+        if: always()
         uses: anchore/sbom-action@v0
         with:
           path: '.'
@@ -32,6 +52,7 @@ jobs:
           output-file: 'sbom.spdx.json'
 
       - name: Upload security reports
+        if: always()
         uses: actions/upload-artifact@v4
         with:
           name: security-reports
