@@ -1,0 +1,24 @@
+# Конфигурация с потенциальными проблемами безопасности
+app:
+  name: "Vulnerable Demo App"
+  version: "1.0.0"
+  debug: true  # Не должно быть true в production
+  
+database:
+  path: "./notes.db"
+  timeout: 30
+  
+security:
+  secret_key: "hardcoded_secret_key"  # CWE-798: Hardcoded credentials
+  allowed_hosts: "*"  # CWE-942: Permissive CORS
+  
+api:
+  endpoint: "http://localhost:5000"
+  timeout: 10
+  
+# Тестовые данные с потенциально опасным содержимым
+test_data:
+  - name: "test1"
+    payload: "<?xml version='1.0'?><!DOCTYPE test [<!ENTITY xxe SYSTEM 'file:///etc/passwd'>]><test>&xxe;</test>"
+  - name: "test2"
+    payload: "<script>alert('XSS')</script>"
