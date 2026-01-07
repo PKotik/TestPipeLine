@@ -22,20 +22,28 @@ jobs:
         run: |
           pip install -r requirements.txt
 
+      - name: Install Trivy
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y wget
+          wget https://github.com/aquasecurity/trivy/releases/latest/download/trivy_0.50.1_Linux-64bit.deb
+          sudo dpkg -i trivy_0.50.1_Linux-64bit.deb
+
       - name: Run Trivy (table output)
         continue-on-error: true
         run: |
-          trivy fs --format table --severity HIGH,CRITICAL --exit-code 0 .
+          trivy fs . \
+            --severity HIGH,CRITICAL \
+            --format table \
+            --exit-code 0
 
       - name: Run Trivy (JSON output)
-        uses: aquasecurity/trivy-action@master
-        with:
-          scan-type: 'fs'
-          scan-ref: '.'
-          format: 'json'
-          output: './trivy-results.json'
-          severity: 'HIGH,CRITICAL'
-          exit-code: 0
+        run: |
+          trivy fs . \
+            --severity HIGH,CRITICAL \
+            --format json \
+            --output trivy-results.json \
+            --exit-code 0
 
       - name: Verify Trivy report exists
         run: |
@@ -43,7 +51,6 @@ jobs:
           test -f trivy-results.json
 
       - name: Generate SBOM with Syft
-        if: always()
         uses: anchore/sbom-action@v0
         with:
           path: '.'
@@ -51,7 +58,6 @@ jobs:
           output-file: 'sbom.spdx.json'
 
       - name: Upload Trivy report to DefectDojo
-        if: always()
         run: |
           curl -X POST "$DEFECTDOJO_URL/api/v2/import-scan/" \
             -H "Authorization: Token $DEFECTDOJO_API_KEY" \
