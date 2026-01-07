@@ -22,23 +22,23 @@ jobs:
         run: |
           pip install -r requirements.txt
 
-      - name: Install Trivy
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y wget
-          wget https://github.com/aquasecurity/trivy/releases/latest/download/trivy_0.50.1_Linux-64bit.deb
-          sudo dpkg -i trivy_0.50.1_Linux-64bit.deb
-          trivy --version
+      - name: Setup Trivy
+        uses: aquasecurity/setup-trivy@v0.2.0
 
-      - name: Run Trivy (table output)
-        id: trivy-table
-        continue-on-error: true
+      - name: Run Trivy (JSON output)
+        id: trivy-json
         run: |
-          echo "=== Running Trivy scan (table format) ==="
+          set -e
           trivy fs . \
             --severity HIGH,CRITICAL \
-            --format table \
+            --format json \
+            --output trivy-results.json \
             --exit-code 0
+
+          echo "=== Verifying Trivy output ==="
+          ls -la trivy-results.json
+          wc -c trivy-results.json
+
 
       - name: Run Trivy (JSON output)
         id: trivy-json
