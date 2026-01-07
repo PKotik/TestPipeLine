@@ -20,54 +20,28 @@ jobs:
 
       - name: Install dependencies
         run: |
+          echo "=== Installing packages from requirements.txt ==="
           pip install -r requirements.txt
+          echo "=== Installed packages ==="
+          pip list | grep -E "(flask|requests|urllib|jinja|werkzeug)" || true
 
-      - name: Setup Trivy
-        uses: aquasecurity/setup-trivy@v0.2.0
-
-      - name: Run Trivy (JSON output)
-        id: trivy-json
-        run: |
-          set -e
-          trivy fs . \
-            --severity HIGH,CRITICAL \
-            --format json \
-            --output trivy-results.json \
-            --exit-code 0
-
-          echo "=== Verifying Trivy output ==="
-          ls -la trivy-results.json
-          wc -c trivy-results.json
-
-
-      - name: Run Trivy (JSON output)
-        id: trivy-json
+      - name: Run Trivy (table output)
         continue-on-error: true
         run: |
-          echo "=== Running Trivy scan (JSON format) ==="
-          trivy fs . \
-            --severity HIGH,CRITICAL \
-            --format json \
-            --output trivy-results.json \
-            --exit-code 0
-          
-          # Проверяем, создался ли файл
-          if [ -f "trivy-results.json" ]; then
-            echo "Trivy report generated successfully"
-            # Считаем количество уязвимостей для принятия решения
-            VULN_COUNT=$(jq '.Results[]?.Vulnerabilities[]? | select(.Severity=="HIGH" or .Severity=="CRITICAL") | .VulnerabilityID' trivy-results.json | wc -l || echo "0")
-            echo "vuln-count=$VULN_COUNT" >> $GITHUB_OUTPUT
-          else
-            echo "Warning: Trivy report file not found"
-            echo "vuln-count=0" >> $GITHUB_OUTPUT
-          fi
+          echo "=== Trivy scan results (table) ==="
+          trivy fs --format table --severity HIGH,CRITICAL --exit-code 0 .
 
-      - name: Check if pipeline should fail
-        if: steps.trivy-json.outputs.vuln-count != '0' && steps.trivy-json.outputs.vuln-count != ''
-        run: |
-          echo "❌ Found ${{ steps.trivy-json.outputs.vuln-count }} HIGH/CRITICAL vulnerabilities!"
-          echo "Failing pipeline as per security policy..."
-          exit 1
+      - name: Run Trivy (JSON output)
+        id: trivy-scan
+        uses: aquasecurity/trivy-action@master
+        with:
+          scan-type: 'fs'
+          scan-ref: '.'
+          format: 'json'
+          output: 'trivy-results.json'
+          severity: 'HIGH,CRITICAL'
+          exit-code: 1
+          ignore-unfixed: false
 
       - name: Generate SBOM with Syft
         if: always()
@@ -77,58 +51,11 @@ jobs:
           format: 'spdx-json'
           output-file: 'sbom.spdx.json'
 
-      - name: Verify files exist
-        if: always()
-        run: |
-          echo "=== Checking generated files ==="
-          ls -la *.json 2>/dev/null || echo "No JSON files found"
-          echo "=== File sizes ==="
-          for file in trivy-results.json sbom.spdx.json; do
-            if [ -f "$file" ]; then
-              echo "$file: $(wc -l < "$file") lines, $(wc -c < "$file") bytes"
-            fi
-          done
-
-      - name: Upload security reports as artifact
+      - name: Upload security reports
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: security-reports-${{ github.run_number }}
+          name: security-reports
           path: |
             trivy-results.json
             sbom.spdx.json
-          retention-days: 30
-
-      - name: Upload Trivy report to DefectDojo
-        if: always() && env.DEFECTDOJO_URL != '' && env.DEFECTDOJO_API_KEY != ''
-        env:
-          DEFECTDOJO_URL: ${{ secrets.DEFECTDOJO_URL }}
-          DEFECTDOJO_API_KEY: ${{ secrets.DEFECTDOJO_API_KEY }}
-          DEFECTDOJO_ENGAGEMENT_ID: ${{ secrets.DEFECTDOJO_ENGAGEMENT_ID }}
-        run: |
-          if [ -f "trivy-results.json" ]; then
-            echo "=== Uploading to DefectDojo ==="
-            echo "Engagement ID: $DEFECTDOJO_ENGAGEMENT_ID"
-            
-            if [ ! -s "trivy-results.json" ]; then
-              echo "Warning: trivy-results.json is empty, skipping upload"
-              exit 0
-            fi
-            
-            echo "File preview (first 100 chars):"
-            head -c 100 trivy-results.json
-            
-            curl -v -X POST "$DEFECTDOJO_URL/api/v2/import-scan/" \
-              -H "Authorization: Token $DEFECTDOJO_API_KEY" \
-              -H "Accept: application/json" \
-              -F "scan_type=Trivy Scan" \
-              -F "engagement=$DEFECTDOJO_ENGAGEMENT_ID" \
-              -F "file=@trivy-results.json" \
-              -F "active=true" \
-              -F "verified=false" \
-              -F "minimum_severity=Low" \
-              -F "close_old_findings=true" \
-              -F "push_to_jira=false" || echo "DefectDojo upload failed, but continuing..."
-          else
-            echo "Skipping DefectDojo upload: trivy-results.json not found"
-          fi
